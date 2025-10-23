@@ -27,3 +27,5 @@ API bounds request: Found and serving 9408 points for the detailed view.
 INFO:     127.0.0.1:32817 - "GET /api/ip-data-by-bounds?north=48.977751194284686&south=47.60918539110019&east=13.265317999713854&west=9.21273621260448 HTTP/1.1" 200 OK
 ```
 
+![](./IPstreetmap_demo_1jpg.JPG)
+![](./IPstreetmap_demo_2jpg.JPG)
