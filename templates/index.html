@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>IP Geolocation Map</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css"/>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.Default.css" />
+
+    <style>
+        html, body { height: 100%; margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+        #map { width: 100%; height: 100%; background-color: #f0f0f0; }
+        .info-sidebar {
+            position: absolute; top: 10px; right: 10px; width: 280px;
+            background: rgba(255, 255, 255, 0.95); z-index: 1000; padding: 15px;
+            border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            display: none; border: 1px solid #ccc;
+        }
+        .info-sidebar h3 { margin: 0 0 10px; font-size: 16px; border-bottom: 1px solid #ddd; padding-bottom: 5px; color: #333; }
+        .info-sidebar p { margin: 5px 0; font-size: 14px; }
+        .info-sidebar p b { color: #555; display: inline-block; width: 80px; }
+        #loading {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: #fff; padding: 20px 40px; border-radius: 8px; box-shadow: 0 0 20px rgba(0,0,0,0.3);
+            z-index: 2000; font-size: 1.2em; display: none; 
+        }
+        /* The button class is no longer needed but is left here */
+        .load-button { display: none; }
+
+        .permanent-ip-label {
+            background: transparent;
+            border: none;
+            box-shadow: none;
+            font-weight: bold;
+            font-size: 15px;
+            color: #ffffff;
+            background-color: #62aeff;
+            padding: 4px;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
+        }
+    </style>
+</head>
+<body>
+
+    <div id="loading"><p>Loading initial map data...</p></div>
+    <div id="map"></div>
+    <div id="info-card" class="info-sidebar"></div>
+    <!-- The manual button was removed, may re-add here if you like -->
+
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const map = L.map('map').setView([20, 0], 2);
+            const loadingDiv = document.getElementById('loading');
+            const infoCard = document.getElementById('info-card');
+            
+            // This is the zoom level for the automatic switch - wouldn't go below 10
+            const ZOOM_THRESHOLD_FOR_LABELS = 10;
+
+            // State variables to manage the view
+            let initialSampleData = [];
+            let isDetailedView = false;
+
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            }).addTo(map);
+
+            let markers = L.markerClusterGroup({
+                chunkedLoading: true,
+                maxClusterRadius: 80,
+                disableClusteringAtZoom: ZOOM_THRESHOLD_FOR_LABELS 
+            });
+            map.addLayer(markers);
+            
+            function addPointsToMap(dataPoints, withPermanentLabels) {
+                markers.clearLayers();
+                if (!dataPoints) return;
+                let newMarkerArray = [];
+                dataPoints.forEach(function(ipInfo) {
+                    const marker = L.marker([ipInfo.latitude, ipInfo.longitude]);
+                    marker.ipData = ipInfo;
+                    
+                    if (withPermanentLabels) {
+                        marker.bindTooltip(ipInfo.network, { 
+                            permanent: true, direction: 'right', offset: [0, 0], className: 'permanent-ip-label' 
+                        });
+                    } else {
+                        marker.bindTooltip(ipInfo.network);
+                    }
+                    
+                    marker.on('click', (e) => updateInfoCard(e.target.ipData));
+                    newMarkerArray.push(marker);
+                });
+                markers.addLayers(newMarkerArray);
+            }
+
+            // --- AUTOMATIC REFRESH LOGIC ---
+            // We previously had a button, both has pros and cons, now triggered automatically.
+            async function refreshMapView() {
+                const currentZoom = map.getZoom();
+
+                // Condition 1: Zoom IN to the detail level
+                if (currentZoom >= ZOOM_THRESHOLD_FOR_LABELS && !isDetailedView) {
+                    isDetailedView = true;
+                    loadingDiv.innerHTML = '<p>Loading detailed data with labels...</p>';
+                    loadingDiv.style.display = 'block';
+
+                    const bounds = map.getBounds();
+                    const url = `/api/ip-data-by-bounds?north=${bounds.getNorth()}&south=${bounds.getSouth()}&east=${bounds.getEast()}&west=${bounds.getWest()}`;
+                    
+                    const response = await fetch(url);
+                    const data = await response.json();
+                    
+                    addPointsToMap(data, true); // Load with permanent labels
+                    loadingDiv.style.display = 'none';
+                } 
+                // Condition 2: Zoom OUT to the overview level
+                else if (currentZoom < ZOOM_THRESHOLD_FOR_LABELS && isDetailedView) {
+                    isDetailedView = false;
+                    // Revert to the clean initial data without hitting the server again
+                    addPointsToMap(initialSampleData, false); 
+                }
+            }
+
+            // 1. Initial Load 
+            loadingDiv.style.display = 'block';
+            fetch('/api/ip-data-initial')
+                .then(response => response.json())
+                .then(data => {
+                    initialSampleData = data; // Save data to use when zooming out
+                    addPointsToMap(data, false);
+                    loadingDiv.style.display = 'none';
+                })
+                .catch(error => console.error('Error fetching initial data:', error));
+
+            // --- THE TRIGGER ---
+            // This runs the automatic logic every time you stop moving or zooming the map.
+            map.on('moveend', refreshMapView);
+
+            map.on('click', () => { infoCard.style.display = 'none'; });
+            function updateInfoCard(data) {
+                 if (!data) return;
+                 infoCard.innerHTML = `
+                    <h3>Geolocation Details</h3>
+                    <p><b>Network:</b> ${data.network}</p>
+                    <p><b>City:</b> ${data.city || 'N/A'}</p>
+                    <p><b>State:</b> ${data.subdivision || 'N/A'}</p>
+                    <p><b>Country:</b> ${data.country || 'N/A'}</p>
+                    <p><b>ASN-Org:</b> ${data.org || 'N/A'}</p>
+                `;
+                infoCard.style.display = 'block';
+            }
+        });
+    </script>
+</body>
+</html>
