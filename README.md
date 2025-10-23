@@ -1,6 +1,13 @@
 # IPstreetmap
 Quick and easy world map of IPV4 addresses
 
+## Install
+Just clone and run the backend, open `localhost:8000` in browser. 
+
+## Dependencies
+You need GeoLite2 City and ASN mmdb in same folder, or adjust path in backend.py
+
+## Run
 ```bash
 $ python3 backend.py
 --- Initializing IP Map Viewer ---
